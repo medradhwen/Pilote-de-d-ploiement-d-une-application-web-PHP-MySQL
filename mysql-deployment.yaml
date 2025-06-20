@@ -1,0 +1,93 @@
+# Fichier: mysql-deployment.yaml
+
+# 1. Secret pour le mot de passe de la base de données
+# Le mot de passe est 'password'. Encodé en base64, cela donne 'cGFzc3dvcmQ='
+# Pour encoder votre propre mot de passe : echo -n 'votre_mdp' | base64
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: cGFzc3dvcmQ=
+
+---
+
+# 2. PersistentVolumeClaim pour le stockage persistant des données MySQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce # Convient pour une base de données sur un seul nœud
+  resources:
+    requests:
+      storage: 1Gi # Allouer 1Go de stockage
+
+---
+
+# 3. Déploiement pour le pod MySQL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+spec:
+  replicas: 1 # Une seule instance de la base de données
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0 # Utiliser une image MySQL officielle
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              value: "webappdb" # Nom de la base de données créée par le script
+          volumeMounts:
+            # Monter le stockage persistant
+            - name: mysql-persistent-storage
+              mountPath: /var/lib/mysql
+            # Monter le script d'initialisation
+            - name: mysql-initdb
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        # Définir le volume pour le stockage persistant
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+        # Définir le volume pour le script d'initialisation
+        # Ce ConfigMap doit être créé manuellement avant d'appliquer ce manifeste
+        # Commande: kubectl create configmap mysql-initdb-config --from-file=backend/init.sql
+        - name: mysql-initdb
+          configMap:
+            name: mysql-initdb-config
+
+---
+
+# 4. Service pour exposer MySQL à l'intérieur du cluster
+# Le type ClusterIP est le défaut et rend le service accessible uniquement
+# depuis d'autres pods dans le même cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    app: mysql # Cible les pods avec le label 'app: mysql'
+  ports:
+    - protocol: TCP
+      port: 3306       # Port du service
+      targetPort: 3306 # Port du conteneur
+  type: ClusterIP      # Type par défaut, mais explicite ici pour la clarté 

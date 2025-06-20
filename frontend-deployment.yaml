@@ -1,0 +1,55 @@
+# Fichier: frontend-deployment.yaml
+
+# 1. Déploiement pour l'application Frontend PHP
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 3 # Haute disponibilité avec 3 instances
+  selector:
+    matchLabels:
+      app: php-frontend
+  template:
+    metadata:
+      labels:
+        app: php-frontend
+    spec:
+      containers:
+        - name: php-frontend-container
+          image: mon-app-php:latest # L'image que nous construisons localement
+          # Pour le développement local avec Minikube et `eval $(minikube docker-env)`,
+          # 'Never' ou 'IfNotPresent' garantit que l'image locale est utilisée.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          env:
+            - name: DB_HOST
+              value: "mysql-service" # Le nom du Service Kubernetes du backend
+            - name: DB_USER
+              value: "root" # Utilisateur root pour la démo
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD # Récupère la valeur du Secret
+            - name: DB_NAME
+              value: "webappdb" # Le nom de la base de données
+
+---
+
+# 2. Service pour exposer le Frontend à l'extérieur du cluster
+# Le type LoadBalancer expose le service via le répartiteur de charge de Minikube.
+# Minikube fournit une commande `minikube service <nom-service>` pour y accéder.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: php-frontend # Cible les pods avec le label 'app: php-frontend'
+  ports:
+    - protocol: TCP
+      port: 80        # Port exposé par le service
+      targetPort: 80  # Port sur lequel le conteneur écoute
+  type: LoadBalancer  # Rend le service accessible de l'extérieur du cluster 
